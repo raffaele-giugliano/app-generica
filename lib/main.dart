@@ -64,7 +64,7 @@ class _HomePageState extends State<HomePage> {
       final response = await http.get(Uri.parse(configCsvUrl));
       if (response.statusCode == 200) {
         List<List<dynamic>> rows =
-            const CsvToListConverter().convert(response.body);
+            CsvToListConverter().convert(response.body);
 
         List<ConfigEntry> entries = [];
         Set<String> pagineSet = {};
@@ -237,7 +237,7 @@ class _PaginaCortesiaScreenState extends State<PaginaCortesiaScreen> {
         final res = await http.get(Uri.parse(item.url));
         if (res.statusCode == 200) {
           List<List<dynamic>> csvData =
-              const CsvToListConverter().convert(res.body);
+              CsvToListConverter().convert(res.body);
           mappaRisultati[item.tabella] = csvData;
         }
       } catch (e) {
