@@ -1,11 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Import per gestire la Clipboard
 import 'package:http/http.dart' as http;
-import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
-
-const String urlTabellaPartite = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTA-oDFCDZIShzqfWXWlxsl1UZjQnlJrR3nmg6c82n9jBFKv5VHb3_RDLUQCAxQpZpJZDki4vVGPdbq/pub?gid=0&single=true&output=csv';
-const String urlTabellaGiocatori = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTA-oDFCDZIShzqfWXWlxsl1UZjQnlJrR3nmg6c82n9jBFKv5VHb3_RDLUQCAxQpZpJZDki4vVGPdbq/pub?gid=1093465003&single=true&output=csv';
+import 'package:csv/csv.dart';
 
 void main() {
   runApp(const MyApp());
@@ -17,342 +12,303 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Gestione Partite',
-      theme: ThemeData(primarySwatch: Colors.blue),
-      home: const PaginaPartite(),
+      title: 'PWA Google Sheets',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        primarySwatch: Colors.blue,
+        useMaterial3: true,
+      ),
+      home: const HomePage(),
     );
   }
 }
 
-// Model per la partita
-class Partita {
-  final DateTime data;
-  final String dataStringa;
-  final String squadraOspitante;
-  final String squadraOspite;
-  final String indirizzo;
-  final String oraRitrovo; // Campo per l'ora di ritrovo (Colonna D)
+class ConfigEntry {
+  final String pagina;
+  final String tabella;
+  final String url;
 
-  Partita({
-    required this.data,
-    required this.dataStringa,
-    required this.squadraOspitante,
-    required this.squadraOspite,
-    required this.indirizzo,
-    required this.oraRitrovo,
+  ConfigEntry({
+    required this.pagina,
+    required this.tabella,
+    required this.url,
   });
 }
 
-// Model per il giocatore
-class Giocatore {
-  final String cognome;
-  final String nome;
-  bool convocato;
-
-  Giocatore({
-    required this.cognome,
-    required this.nome,
-    this.convocato = true,
-  });
-}
-
-// Helper per dividere la riga CSV gestendo eventuali virgolette
-List<String> parseCsvLine(String line) {
-  List<String> result = [];
-  StringBuffer current = StringBuffer();
-  bool inQuotes = false;
-
-  for (int i = 0; i < line.length; i++) {
-    String char = line[i];
-    if (char == '"') {
-      inQuotes = !inQuotes;
-    } else if (char == ',' && !inQuotes) {
-      result.add(current.toString().trim());
-      current.clear();
-    } else {
-      current.write(char);
-    }
-  }
-  result.add(current.toString().trim());
-  return result;
-}
-
-// --- PAGINA 1: Partite da giocare ---
-class PaginaPartite extends StatefulWidget {
-  const PaginaPartite({super.key});
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
 
   @override
-  State<PaginaPartite> createState() => _PaginaPartiteState();
+  State<HomePage> createState() => _HomePageState();
 }
 
-class _PaginaPartiteState extends State<PaginaPartite> {
-  List<Partita> partite = [];
-  Partita? partitaSelezionata;
-  bool caricamento = true;
+class _HomePageState extends State<HomePage> {
+  // URL del CSV remoto di configurazione fornito
+  final String configCsvUrl =
+      'https://docs.google.com/spreadsheets/d/e/2PACX-1vTK1BzKUMV1BRG_DymJVueT0R5guHPAqz7ZpJngaTIp487sbIJLl5uh8UFkLtDfX0SOd8ge5YSZILwr/pub?gid=1930029797&single=true&output=csv';
+
+  List<ConfigEntry> _configData = [];
+  List<String> _pagineDisponibili = [];
+  String? _paginaSelezionata;
+  bool _isLoadingConfig = true;
+  String _errorMessage = '';
 
   @override
   void initState() {
     super.initState();
-    caricaPartite();
+    _caricaConfigurazione();
   }
 
-  Future<void> caricaPartite() async {
+  Future<void> _caricaConfigurazione() async {
     try {
-      final response = await http.get(Uri.parse(urlTabellaPartite));
+      final response = await http.get(Uri.parse(configCsvUrl));
       if (response.statusCode == 200) {
-        List<String> lines = response.body.split(RegExp(r'\r?\n'));
-        List<Partita> tempPartite = [];
-        DateTime oggi = DateTime.now();
-        DateTime soloOggi = DateTime(oggi.year, oggi.month, oggi.day);
+        List<List<dynamic>> rows =
+            const CsvToListConverter().convert(response.body);
 
-        for (var line in lines) {
-          if (line.trim().isEmpty) continue;
-          List<String> cells = parseCsvLine(line);
+        List<ConfigEntry> entries = [];
+        Set<String> pagineSet = {};
 
-          if (cells.length >= 7) {
-            String strData = cells[1].replaceAll('"', '').trim(); // Colonna B (indice 1)
-            String oraRitrovo = cells[3].replaceAll('"', '').trim(); // Colonna D (indice 3)
-            String indirizzo = cells[4].replaceAll('"', '').trim(); // Colonna E (indice 4)
-            String ospitante = cells[5].replaceAll('"', '').trim(); // Colonna F (indice 5)
-            String ospite = cells[6].replaceAll('"', '').trim(); // Colonna G (indice 6)
+        // Salta l'intestazione (i = 1)
+        for (var i = 1; i < rows.length; i++) {
+          if (rows[i].length >= 3) {
+            String pag = rows[i][0].toString().trim();
+            String tab = rows[i][1].toString().trim();
+            String link = rows[i][2].toString().trim();
 
-            try {
-              DateFormat format = DateFormat("dd-MM-yyyy");
-              DateTime dataPartita = format.parse(strData);
-
-              if (dataPartita.isAfter(soloOggi) || dataPartita.isAtSameMomentAs(soloOggi)) {
-                tempPartite.add(Partita(
-                  data: dataPartita,
-                  dataStringa: strData,
-                  squadraOspitante: ospitante,
-                  squadraOspite: ospite,
-                  indirizzo: indirizzo,
-                  oraRitrovo: oraRitrovo,
-                ));
-              }
-            } catch (_) {
-              // Salta l'intestazione o righe con date non valide
+            if (pag.isNotEmpty) {
+              entries.add(ConfigEntry(pagina: pag, tabella: tab, url: link));
+              pagineSet.add(pag);
             }
           }
         }
 
         setState(() {
-          partite = tempPartite;
-          caricamento = false;
+          _configData = entries;
+          _pagineDisponibili = pagineSet.toList();
+          _isLoadingConfig = false;
+        });
+      } else {
+        setState(() {
+          _errorMessage =
+              'Errore nel caricamento dell\'indice: ${response.statusCode}';
+          _isLoadingConfig = false;
         });
       }
     } catch (e) {
-      setState(() => caricamento = false);
+      setState(() {
+        _errorMessage = 'Errore di connessione: $e';
+        _isLoadingConfig = false;
+      });
     }
   }
 
-  void confermaSelezione() {
-    if (partitaSelezionata != null) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => PaginaGiocatori(partita: partitaSelezionata!),
+  void _visualizzaPagina() {
+    if (_paginaSelezionata == null) return;
+
+    // Recupera tutte le righe del CSV di indice associate alla pagina selezionata
+    final tabelleAssociate = _configData
+        .where((entry) => entry.pagina == _paginaSelezionata)
+        .toList();
+
+    // Apre la pagina di cortesia
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => PaginaCortesiaScreen(
+          nomePagina: _paginaSelezionata!,
+          tabelle: tabelleAssociate,
         ),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Seleziona una partita per proseguire')),
-      );
-    }
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("partite da giocare")),
-      body: caricamento
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: ElevatedButton(
-                    onPressed: confermaSelezione,
-                    child: const Text("Conferma Partita"),
-                  ),
+      appBar: AppBar(
+        title: const Text('Seleziona Pagina'),
+        centerTitle: true,
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: _isLoadingConfig
+            ? const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 16),
+                    Text('Caricamento elenco pagine...'),
+                  ],
                 ),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: partite.length,
-                    itemBuilder: (context, index) {
-                      final p = partite[index];
-                      return RadioListTile<Partita>(
-                        title: Text("${p.dataStringa} - ${p.squadraOspitante} vs ${p.squadraOspite}"),
-                        value: p,
-                        groupValue: partitaSelezionata,
-                        onChanged: (Partita? val) {
+              )
+            : _errorMessage.isNotEmpty
+                ? Center(
+                    child: Text(
+                      _errorMessage,
+                      style: const TextStyle(color: Colors.red),
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text(
+                        'Pagine disponibili:',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      DropdownButtonFormField<String>(
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                        ),
+                        hint: const Text('Seleziona una pagina'),
+                        value: _paginaSelezionata,
+                        items: _pagineDisponibili.map((String pagina) {
+                          return DropdownMenuItem<String>(
+                            value: pagina,
+                            child: Text(pagina),
+                          );
+                        }).toList(),
+                        onChanged: (String? newValue) {
                           setState(() {
-                            partitaSelezionata = val;
+                            _paginaSelezionata = newValue;
                           });
                         },
-                      );
-                    },
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton(
+                        onPressed:
+                            _paginaSelezionata != null ? _visualizzaPagina : null,
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                        ),
+                        child: const Text(
+                          'Visualizza Pagina',
+                          style: TextStyle(fontSize: 16),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
+      ),
     );
   }
 }
 
-// --- PAGINA 2: Selezione Giocatori ---
-class PaginaGiocatori extends StatefulWidget {
-  final Partita partita;
-  const PaginaGiocatori({super.key, required this.partita});
+class PaginaCortesiaScreen extends StatefulWidget {
+  final String nomePagina;
+  final List<ConfigEntry> tabelle;
+
+  const PaginaCortesiaScreen({
+    super.key,
+    required this.nomePagina,
+    required this.tabelle,
+  });
 
   @override
-  State<PaginaGiocatori> createState() => _PaginaGiocatoriState();
+  State<PaginaCortesiaScreen> createState() => _PaginaCortesiaScreenState();
 }
 
-class _PaginaGiocatoriState extends State<PaginaGiocatori> {
-  List<Giocatore> giocatori = [];
-  bool caricamento = true;
-  bool selezionaTutti = true;
+class _PaginaCortesiaScreenState extends State<PaginaCortesiaScreen> {
+  bool _isLoading = true;
+  Map<String, List<List<dynamic>>> _datiTabelle = {};
+  String _statusMessage = 'Scaricamento tabelle in corso...';
 
   @override
   void initState() {
     super.initState();
-    caricaGiocatori();
+    _scaricaTabelle();
   }
 
-  Future<void> caricaGiocatori() async {
-    try {
-      final response = await http.get(Uri.parse(urlTabellaGiocatori));
-      if (response.statusCode == 200) {
-        List<String> lines = response.body.split(RegExp(r'\r?\n'));
-        List<Giocatore> tempGiocatori = [];
+  Future<void> _scaricaTabelle() async {
+    Map<String, List<List<dynamic>>> mappaRisultati = {};
 
-        for (var line in lines) {
-          if (line.trim().isEmpty) continue;
-          List<String> cells = parseCsvLine(line);
-
-          if (cells.length >= 2) {
-            String cognome = cells[0].replaceAll('"', '').trim();
-            String nome = cells[1].replaceAll('"', '').trim();
-
-            if (cognome.isNotEmpty &&
-                nome.isNotEmpty &&
-                cognome.toLowerCase() != 'cognome' &&
-                nome.toLowerCase() != 'nome') {
-              tempGiocatori.add(Giocatore(cognome: cognome, nome: nome));
-            }
-          }
+    for (var item in widget.tabelle) {
+      try {
+        final res = await http.get(Uri.parse(item.url));
+        if (res.statusCode == 200) {
+          List<List<dynamic>> csvData =
+              const CsvToListConverter().convert(res.body);
+          mappaRisultati[item.tabella] = csvData;
         }
-
-        setState(() {
-          giocatori = tempGiocatori;
-          caricamento = false;
-        });
+      } catch (e) {
+        // Gestione errore scaricamento singola tabella
       }
-    } catch (e) {
-      setState(() => caricamento = false);
     }
-  }
 
-  void toggleSelezionaTutti(bool? valore) {
-    bool nuovoStato = valore ?? false;
     setState(() {
-      selezionaTutti = nuovoStato;
-      for (var g in giocatori) {
-        g.convocato = nuovoStato;
-      }
+      _datiTabelle = mappaRisultati;
+      _isLoading = false;
+      _statusMessage = 'Tutte le tabelle sono state caricate con successo!';
     });
   }
 
-  Future<void> inviaSuWhatsApp() async {
-    List<String> convocati = giocatori
-        .where((g) => g.convocato)
-        .map((g) => "${g.cognome} ${g.nome}")
-        .toList();
-
-    String elencoTesto = convocati.join("\n");
-    
-    String messaggio =
-        "In data *${widget.partita.dataStringa}* si giocherà la partita tra *${widget.partita.squadraOspitante}* e *${widget.partita.squadraOspite}* presso il campo che si trova a questo *indirizzo*: ${widget.partita.indirizzo}.\n"
-        "Il ritrovo è direttamente al campo alle ore *${widget.partita.oraRitrovo}*\n\n"
-        "*Convocati*:\n$elencoTesto";
-
-    await Clipboard.setData(ClipboardData(text: messaggio));
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Messaggio copiato negli appunti! Aprendo WhatsApp...'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
-
-    Uri url = Uri.parse("https://wa.me/?text=${Uri.encodeComponent(messaggio)}");
-
-    if (await canLaunchUrl(url)) {
-      await launchUrl(url, mode: LaunchMode.externalApplication);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Impossibile aprire WhatsApp')),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("giocatori")),
-      body: caricamento
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
-              children: [
-                const Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: Text(
-                    "Seleziona i giocatori convocati e premi il bottone 'Convoca'",
-                    textAlign: TextAlign.center,
-                  ),
+      appBar: AppBar(
+        title: Text(widget.nomePagina),
+      ),
+      body: Center(
+        child: _isLoading
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text(_statusMessage),
+                ],
+              )
+            : Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(
+                      Icons.check_circle_outline,
+                      size: 72,
+                      color: Colors.green,
+                    ),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Pagina di Cortesia',
+                      style: Theme.of(context).textTheme.headlineMedium,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Pagina selezionata: "${widget.nomePagina}"',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Tabelle scaricate in memoria:',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8.0,
+                      runSpacing: 4.0,
+                      children: _datiTabelle.keys
+                          .map((t) => Chip(label: Text(t)))
+                          .toList(),
+                    ),
+                  ],
                 ),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8.0),
-                  child: ElevatedButton(
-                    onPressed: inviaSuWhatsApp,
-                    child: const Text("Convoca"),
-                  ),
-                ),
-                const Divider(height: 1),
-                CheckboxListTile(
-                  title: const Text(
-                    "Seleziona tutti",
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  value: selezionaTutti,
-                  onChanged: toggleSelezionaTutti,
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: giocatori.length,
-                    itemBuilder: (context, index) {
-                      final g = giocatori[index];
-                      return CheckboxListTile(
-                        title: Text("${g.cognome} ${g.nome}"),
-                        value: g.convocato,
-                        onChanged: (bool? val) {
-                          setState(() {
-                            g.convocato = val ?? false;
-                            selezionaTutti = giocatori.every((giocatore) => giocatore.convocato);
-                          });
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
+              ),
+      ),
     );
   }
 }
