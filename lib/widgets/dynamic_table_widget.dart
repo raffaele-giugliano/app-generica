@@ -25,7 +25,7 @@ class DynamicTableWidget extends StatelessWidget {
     final rows = data.skip(1).toList();
 
     return Column(
-      crossAxisAlignment: CrossAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (title.isNotEmpty)
           Padding(

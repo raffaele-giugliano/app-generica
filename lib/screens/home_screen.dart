@@ -61,7 +61,6 @@ class _HomeScreenState extends State<HomeScreen> {
           }
 
           final allConfigs = snapshot.data!;
-          // Estrae i nomi unici delle pagine preservando l'ordine
           final pageNames = allConfigs
               .map((c) => c.pagina)
               .where((name) => name.isNotEmpty)
@@ -72,7 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.all(24.0),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAlignment.stretch,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Text(
                   'Seleziona una pagina dal menu:',
@@ -100,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 24),
                 ElevatedButton.icon(
-                  style: ElevatedButton.styleStyleFrom(
+                  style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                   icon: const Icon(Icons.arrow_forward),

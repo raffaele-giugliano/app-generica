@@ -37,7 +37,6 @@ class _DynamicPageScreenState extends State<DynamicPageScreen> {
             'data': data,
           });
         } catch (e) {
-          // Se fallisce il caricamento della singola tabella, registra l'errore
           loadedTables.add({
             'title': config.tabella,
             'error': e.toString(),
@@ -74,7 +73,6 @@ class _DynamicPageScreenState extends State<DynamicPageScreen> {
               child: Text('Errore generale: ${snapshot.error}'),
             );
           } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            // Pagina di cortesia standard quando non ci sono tabelle o logiche definite
             return _buildCourtesyPage(context);
           }
 
@@ -92,7 +90,7 @@ class _DynamicPageScreenState extends State<DynamicPageScreen> {
                     padding: const EdgeInsets.all(16.0),
                     child: Text(
                       'Errore nel caricamento della tabella "${table['title']}": ${table['error']}',
-                      style: const TextStyle(color: Colors.black80),
+                      style: const TextStyle(color: Colors.black87),
                     ),
                   ),
                 );
@@ -108,7 +106,6 @@ class _DynamicPageScreenState extends State<DynamicPageScreen> {
     );
   }
 
-  /// Pagina di cortesia visualizzata per default
   Widget _buildCourtesyPage(BuildContext context) {
     return Center(
       child: Padding(
