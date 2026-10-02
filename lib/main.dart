@@ -8,9 +8,9 @@ void main() {
 class MyApp extends StatelessWidget {
   const MyApp({Key? key}) : super(key: key);
 
-  // SOSTITUISCI QUESTO URL CON IL LINK CSV REALE E COMPLETO DEL TUO GOOGLE SHEETS
+  // Link diretto CSV pubblicato da Google Sheets
   static const String configCsvUrl =
-      'https://docs.google.com/spreadsheets/d/e/INSERISCI_IL_TUO_ID_REALE/pub?output=csv';
+      'https://docs.google.com/spreadsheets/d/e/2PACX-1vTK1BzKUMV1BRG_DymJVueT0R5guHPAqz7ZpJngaTIp487sbIJLl5uh8UFkLtDfX0SOd8ge5YSZILwr/pub?gid=1930029797&single=true&output=csv';
 
   @override
   Widget build(BuildContext context) {
