@@ -19,22 +19,48 @@ class _DynamicTableWidgetState extends State<DynamicTableWidget> {
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _cardKeys = {};
 
+  /// Normalizza la stringa rimuovendo accenti, apostrofi, spazi e convertendo in minuscolo
+  static String _normalizeText(String input) {
+    String text = input.toLowerCase().trim();
+    
+    // Rimuovi apostrofi usati al posto dell'accento
+    text = text.replaceAll("'", "");
+
+    // Sostituisci lettere accentate
+    text = text
+        .replaceAll(RegExp(r'[àáâãäå]'), 'a')
+        .replaceAll(RegExp(r'[èéêë]'), 'e')
+        .replaceAll(RegExp(r'[ìíîï]'), 'i')
+        .replaceAll(RegExp(r'[òóôõö]'), 'o')
+        .replaceAll(RegExp(r'[ùúûü]'), 'u');
+
+    return text;
+  }
+
+  /// Mapping dei giorni della settimana normalizzati (1 = Lunedì, 7 = Domenica)
+  static const Map<String, int> _daysOfWeekMap = {
+    'lunedi': DateTime.monday,
+    'martedi': DateTime.tuesday,
+    'mercoledi': DateTime.wednesday,
+    'giovedi': DateTime.thursday,
+    'venerdi': DateTime.friday,
+    'sabato': DateTime.saturday,
+    'domenica': DateTime.sunday,
+  };
+
   /// Tenta il parsing di una stringa contenente una data (GG-MM-AAAA, GG/MM/AAAA, AAAA-MM-GG)
   DateTime? _parseDate(String rawDate) {
     final cleaned = rawDate.trim();
     if (cleaned.isEmpty) return null;
 
     try {
-      // Formato GG-MM-AAAA o GG/MM/AAAA
       if (cleaned.contains('-') || cleaned.contains('/')) {
         final separator = cleaned.contains('-') ? '-' : '/';
         final parts = cleaned.split(separator);
         if (parts.length == 3) {
           if (parts[0].length == 4) {
-            // AAAA-MM-GG
             return DateTime.parse(cleaned.replaceAll('/', '-'));
           } else if (parts[2].length == 4) {
-            // GG-MM-AAAA
             final day = int.parse(parts[0]);
             final month = int.parse(parts[1]);
             final year = int.parse(parts[2]);
@@ -46,6 +72,15 @@ class _DynamicTableWidgetState extends State<DynamicTableWidget> {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Calcola quanti giorni mancano al prossimo giorno della settimana specificato
+  int _daysUntil(int targetWeekday, int currentWeekday) {
+    int diff = targetWeekday - currentWeekday;
+    if (diff < 0) {
+      diff += 7;
+    }
+    return diff;
   }
 
   @override
@@ -62,11 +97,16 @@ class _DynamicTableWidgetState extends State<DynamicTableWidget> {
     final allHeaders = widget.data.first;
     List<List<dynamic>> rows = widget.data.skip(1).toList();
 
-    final isPartitePage = widget.title.toLowerCase().contains('partite');
-    int? nextMatchIndex;
+    final titleNormalized = _normalizeText(widget.title);
+    final isPartitePage = titleNormalized.contains('partite');
+    final isAllenamentiPage = titleNormalized.contains('allenamenti');
 
+    int? highlightedIndex;
+    String badgeText = '';
+
+    // LOGICA PARTITE
     if (isPartitePage && rows.isNotEmpty) {
-      // 1. Ordinamento crescente basato sulla prima colonna (data/giorno)
+      badgeText = 'PROSSIMA PARTITA';
       rows.sort((a, b) {
         final dateA = _parseDate(a.isNotEmpty ? a[0].toString() : '');
         final dateB = _parseDate(b.isNotEmpty ? b[0].toString() : '');
@@ -77,7 +117,6 @@ class _DynamicTableWidgetState extends State<DynamicTableWidget> {
         return dateA.compareTo(dateB);
       });
 
-      // 2. Trova l'indice della prima partita con giorno >= data_oggi
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
 
@@ -86,26 +125,47 @@ class _DynamicTableWidgetState extends State<DynamicTableWidget> {
         if (rowDate != null) {
           final rowDateOnly = DateTime(rowDate.year, rowDate.month, rowDate.day);
           if (rowDateOnly.isAfter(today) || rowDateOnly.isAtSameMomentAs(today)) {
-            nextMatchIndex = i;
+            highlightedIndex = i;
             break;
           }
         }
       }
+    }
 
-      // 3. Se trovata, esegui lo scroll automatico alla card evidenziata dopo il rendering
-      if (nextMatchIndex != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          final targetKey = _cardKeys[nextMatchIndex];
-          if (targetKey != null && targetKey.currentContext != null) {
-            Scrollable.ensureVisible(
-              targetKey.currentContext!,
-              duration: const Duration(milliseconds: 600),
-              curve: Curves.easeInOut,
-              alignment: 0.1, // Posiziona vicino alla cima
-            );
+    // LOGICA ALLENAMENTI
+    if (isAllenamentiPage && rows.isNotEmpty) {
+      badgeText = 'PROSSIMO ALLENAMENTO';
+      final currentWeekday = DateTime.now().weekday;
+      int minDaysDifference = 999;
+
+      for (int i = 0; i < rows.length; i++) {
+        final rawDay = rows[i].isNotEmpty ? rows[i][0].toString() : '';
+        final normalizedDay = _normalizeText(rawDay);
+        final targetWeekday = _daysOfWeekMap[normalizedDay];
+
+        if (targetWeekday != null) {
+          final daysDiff = _daysUntil(targetWeekday, currentWeekday);
+          if (daysDiff < minDaysDifference) {
+            minDaysDifference = daysDiff;
+            highlightedIndex = i;
           }
-        });
+        }
       }
+    }
+
+    // Esegui l'auto-scroll se è stata trovata una card da evidenziare
+    if (highlightedIndex != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final targetKey = _cardKeys[highlightedIndex];
+        if (targetKey != null && targetKey.currentContext != null) {
+          Scrollable.ensureVisible(
+            targetKey.currentContext!,
+            duration: const Duration(milliseconds: 600),
+            curve: Curves.easeInOut,
+            alignment: 0.1,
+          );
+        }
+      });
     }
 
     final previewHeaders = allHeaders.take(4).toList();
@@ -131,18 +191,17 @@ class _DynamicTableWidgetState extends State<DynamicTableWidget> {
           separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final row = rows[index];
-            final isNextMatch = isPartitePage && index == nextMatchIndex;
+            final isHighlighted = index == highlightedIndex;
 
-            // Assegna una chiave per identificare la card da raggiungere con lo scroll
             _cardKeys[index] = GlobalKey();
 
             return Card(
               key: _cardKeys[index],
-              elevation: isNextMatch ? 4 : 2,
-              color: isNextMatch ? const Color(0xFFE8F0FE) : null, // Sfondo evidenziato per la prossima partita
+              elevation: isHighlighted ? 4 : 2,
+              color: isHighlighted ? const Color(0xFFE8F0FE) : null,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
-                side: isNextMatch
+                side: isHighlighted
                     ? const BorderSide(color: Color(0xFF1A73E8), width: 2)
                     : BorderSide.none,
               ),
@@ -169,17 +228,18 @@ class _DynamicTableWidgetState extends State<DynamicTableWidget> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (isNextMatch) ...[
+                            if (isHighlighted && badgeText.isNotEmpty) ...[
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
                                 margin: const EdgeInsets.only(bottom: 8),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFF1A73E8),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
-                                child: const Text(
-                                  'PROSSIMA PARTITA',
-                                  style: TextStyle(
+                                child: Text(
+                                  badgeText,
+                                  style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 11,
                                     fontWeight: FontWeight.bold,
@@ -190,7 +250,8 @@ class _DynamicTableWidgetState extends State<DynamicTableWidget> {
                             ...List.generate(
                               previewHeaders.length,
                               (colIndex) {
-                                final headerName = previewHeaders[colIndex].toString();
+                                final headerName =
+                                    previewHeaders[colIndex].toString();
                                 final cellValue = colIndex < row.length
                                     ? row[colIndex].toString()
                                     : '';
