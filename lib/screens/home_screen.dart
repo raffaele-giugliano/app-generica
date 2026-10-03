@@ -99,14 +99,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 24),
                 ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                  ),
                   icon: const Icon(Icons.arrow_forward),
-                  label: const Text(
-                    'Apri Pagina',
-                    style: TextStyle(fontSize: 16),
-                  ),
+                  label: const Text('Apri Pagina'),
                   onPressed: _selectedPage == null
                       ? null
                       : () {
