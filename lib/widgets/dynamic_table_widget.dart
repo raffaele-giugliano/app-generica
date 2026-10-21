@@ -153,6 +153,34 @@ class _DynamicTableWidgetState extends State<DynamicTableWidget> {
       }
     }
 
+    // LOGICA GENERALE (per tutte le altre pagine)
+    if (!isPartitePage && !isAllenamentiPage && rows.isNotEmpty) {
+      badgeText = 'PROSSIMO IMPEGNO';
+      rows.sort((a, b) {
+        final dateA = _parseDate(a.isNotEmpty ? a[0].toString() : '');
+        final dateB = _parseDate(b.isNotEmpty ? b[0].toString() : '');
+
+        if (dateA == null && dateB == null) return 0;
+        if (dateA == null) return 1;
+        if (dateB == null) return -1;
+        return dateA.compareTo(dateB);
+      });
+
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+
+      for (int i = 0; i < rows.length; i++) {
+        final rowDate = _parseDate(rows[i].isNotEmpty ? rows[i][0].toString() : '');
+        if (rowDate != null) {
+          final rowDateOnly = DateTime(rowDate.year, rowDate.month, rowDate.day);
+          if (rowDateOnly.isAfter(today) || rowDateOnly.isAtSameMomentAs(today)) {
+            highlightedIndex = i;
+            break;
+          }
+        }
+      }
+    }
+
     // Esegui l'auto-scroll se è stata trovata una card da evidenziare
     if (highlightedIndex != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
